@@ -2,7 +2,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Session } from '@supabase/supabase-js';
 import { createContext, PropsWithChildren, useContext, useEffect, useMemo, useState } from 'react';
 
-import { supabase } from '@/src/lib/supabase';
+import { env } from '@/src/lib/env';
+import { getSupabaseClient } from '@/src/lib/supabase';
 
 type AuthContextValue = {
   session: Session | null;
@@ -24,15 +25,33 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [onboardingComplete, setOnboardingCompleteState] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
+    const isSupabaseConfigured =
+      env.SUPABASE_URL.startsWith('http') &&
+      !env.SUPABASE_URL.includes('example.supabase.co') &&
+      env.SUPABASE_ANON_KEY !== 'public-anon-key-placeholder';
+
+    if (isSupabaseConfigured) {
+      const supabase = getSupabaseClient();
+      supabase.auth
+        .getSession()
+        .then(({ data }) => {
+          setSession(data.session);
+        })
+        .catch(() => {
+          setSession(null);
+        })
+        .finally(() => {
+          setLoading(false);
+        });
+    } else {
       setLoading(false);
-    });
+    }
 
     AsyncStorage.getItem(ONBOARDING_KEY).then((value) => {
-      setOnboardingComplete(value === 'true');
+      setOnboardingCompleteState(value === 'true');
     });
 
+    const supabase = getSupabaseClient();
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession);
     });
@@ -50,18 +69,22 @@ export function AuthProvider({ children }: PropsWithChildren) {
         await AsyncStorage.setItem(ONBOARDING_KEY, String(nextValue));
       },
       signIn: async (email: string, password: string) => {
+        const supabase = getSupabaseClient();
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         return error?.message ?? null;
       },
       signUp: async (email: string, password: string) => {
+        const supabase = getSupabaseClient();
         const { error } = await supabase.auth.signUp({ email, password });
         return error?.message ?? null;
       },
       resetPassword: async (email: string) => {
+        const supabase = getSupabaseClient();
         const { error } = await supabase.auth.resetPasswordForEmail(email);
         return error?.message ?? null;
       },
       signOut: async () => {
+        const supabase = getSupabaseClient();
         await supabase.auth.signOut();
       },
     }),
